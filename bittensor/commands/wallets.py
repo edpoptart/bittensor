@@ -16,18 +16,15 @@
 # DEALINGS IN THE SOFTWARE.
 
 import argparse
+import bittensor
 import os
 import sys
-from typing import List, Optional, Tuple
-
-import requests
-from rich.prompt import Confirm, Prompt
+from rich.prompt import Prompt, Confirm
 from rich.table import Table
-
-import bittensor
-
-from ..utils import RAOPERTAO
+from typing import Optional, List, Tuple
 from . import defaults
+import requests
+from ..utils import RAOPERTAO
 
 
 class RegenColdkeyCommand:
@@ -640,6 +637,7 @@ class UpdateWalletCommand:
 
     Optional arguments:
         - ``--all`` (bool): When set, updates all legacy wallets.
+        - ``--no_prompt`` (bool): Disables user prompting during the update process.
 
     Example usage::
 
@@ -1099,3 +1097,81 @@ def create_transfer_history_table(transfers):
     table.pad_edge = False
     table.width = None
     return table
+
+
+class WalletSignCommand:
+    """
+    Executes the ``sign`` command to sign a message with the provided wallet or wallet hotkey.
+
+    This command signs a message using the provided wallet.
+
+    Usage:
+        The command generates a signature for a given message using the provided wallet
+
+    Optional arguments:
+        --wallet.hotkey: A hotkey to use to sign the message instead of the wallet coldkey
+
+    Example usage::
+
+        btcli wallet sign --wallet.name default --message '{"something": "here", "timestamp": 1719908486}'
+        btcli wallet sign --wallet.name default --wallet.name hotkey --message '{"something": "here", "timestamp": 1719908486}'
+
+    Note:
+        When using `btcli`, `w` is used interchangeably with `wallet`. You may use either based on your preference for brevity or clarity.
+        This command is essential for users to easily prove their ownership over a coldkey or a hotkey.
+    """
+
+    @staticmethod
+    def run(cli):
+        r"""Check the transfer history of the provided wallet."""
+        wallet = bittensor.wallet(config=cli.config)
+        keypair = wallet.coldkey
+
+        # Use a hotkey if the user specified it
+        if cli.config.wallet.hotkey:
+            keypair = wallet.hotkey
+
+        signed_message = keypair.sign(cli.config.message.encode("utf-8")).hex()
+
+        bittensor.__console__.print(signed_message)
+
+    @staticmethod
+    def add_args(parser: argparse.ArgumentParser):
+        sign_parser = parser.add_parser(
+            "sign",
+            help="""Sign a message using a provided wallet or a wallet hotkey""",
+        )
+        sign_parser.add_argument(
+            "--message",
+            type=str,
+            default=None,
+            dest="message",
+            help="""The message to sign.""",
+        )
+        bittensor.wallet.add_args(sign_parser)
+
+    @staticmethod
+    def check_config(config: "bittensor.config"):
+        # Clear the default value of the hotkey in the config if only the wallet.name is specified
+        if config.is_set("wallet.name") and not config.is_set("wallet.hotkey"):
+            config.wallet.hotkey = None
+
+        if not config.is_set("wallet.name") and not config.no_prompt:
+            wallet_name = Prompt.ask("Enter wallet name", default=defaults.wallet.name)
+            config.wallet.name = str(wallet_name)
+
+            if not config.is_set("wallet.hotkey"):
+                # Since using the hotkey is optional, it should not be requested when you already pass the coldkey in the command
+                wallet_hotkey = Prompt.ask(
+                    "Enter your hotkey name if you want to use it for the signature instead",
+                    default=None,
+                )
+                if wallet_hotkey:
+                    config.wallet.hotkey = str(wallet_hotkey)
+
+        if not config.is_set("message") and not config.no_prompt:
+            message = Prompt.ask(
+                "Enter a message to sign. Can be a stringified JSON",
+                default="bittensor",
+            )
+            config.message = str(message)
